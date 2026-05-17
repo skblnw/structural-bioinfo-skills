@@ -1,0 +1,61 @@
+{
+  "_about": "Smoke-test cases for search-epitope-host. Each case lists an input peptide and the key facts the report should contain. Used to catch regressions against the upstream IEDB/UniProt/AlphaFold APIs.",
+  "cases": [
+    {
+      "name": "ovalbumin_SIINFEKL_canonical",
+      "input": "SIINFEKL",
+      "expect": {
+        "iedb_matched": true,
+        "primary_parent": {
+          "uniprot_acc": "P01012",
+          "name_contains": "Ovalbumin",
+          "organism_contains": "Gallus gallus",
+          "claimed_position": [258, 265],
+          "verified": true
+        },
+        "experimental_pdb_present": true,
+        "alphafold_used": false
+      }
+    },
+    {
+      "name": "flu_M1_GILGFVFTL_multi_parent",
+      "input": "GILGFVFTL",
+      "expect": {
+        "iedb_matched": true,
+        "min_parents": 2,
+        "primary_parent": {
+          "uniprot_acc": "P03485",
+          "name_contains": "Matrix protein 1",
+          "verified": true
+        },
+        "experimental_pdb_present": true,
+        "alphafold_used_for_secondary_parents": "possible"
+      }
+    },
+    {
+      "name": "nonsense_unmatched",
+      "input": "AAAAAAAA",
+      "expect": {
+        "iedb_matched": false,
+        "report_section": "Unmatched epitopes"
+      }
+    },
+    {
+      "name": "non_amino_acid_invalid",
+      "input": "XYZ123",
+      "expect": {
+        "status": "invalid",
+        "error_contains": "non-standard residues"
+      }
+    },
+    {
+      "name": "too_short_invalid",
+      "input": "PEPT",
+      "expect": {
+        "status": "invalid",
+        "error_contains": "shorter than 5"
+      }
+    }
+  ],
+  "how_to_run": "From the skill directory: python scripts/search_epitope_host.py SIINFEKL GILGFVFTL AAAAAAAA XYZ123 PEPT -o /tmp/eval && grep -E 'P01012|P03485|Unmatched|non-standard' /tmp/eval.md"
+}

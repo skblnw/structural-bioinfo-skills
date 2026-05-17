@@ -1,0 +1,10 @@
+{
+  "name": "structural-bioinfo",
+  "version": "0.1.0",
+  "description": "Structural biology toolkit: search the PDB for protein-ligand holostructures, extract clean monomer+ligand PDB files for downstream analysis (docking, MD, etc.), and map immune epitopes to parent proteins and 3D structures.",
+  "author": {
+    "name": "Ukevi"
+  },
+  "license": "MIT",
+  "keywords": ["structural-biology", "pdb", "holostructure", "ligand", "protein", "drug-discovery", "molecular-dynamics", "epitope", "iedb", "alphafold", "immunology"]
+}

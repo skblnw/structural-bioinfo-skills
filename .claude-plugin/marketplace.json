@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "structural-bioinfo-skills",
+  "description": "Structural biology skills for Claude Code: PDB search & extraction, epitope→parent mapping, pMHC/TCR-pMHC complexes.",
+  "owner": {
+    "name": "Ukevi",
+    "email": "kevin@skblnw.cc"
+  },
+  "plugins": [
+    {
+      "name": "structural-bioinfo",
+      "description": "Search the PDB for holostructures and pMHC/TCR complexes, extract clean monomer+ligand PDBs, and map immune epitopes to parent proteins.",
+      "category": "research",
+      "source": "./plugins/structural-bioinfo"
+    }
+  ]
+}
