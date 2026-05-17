@@ -36,6 +36,14 @@ Search the RCSB Protein Data Bank for **pMHC** and **TCR-pMHC** complex structur
 
 **Output:** `report.md`, `report.html`, and `report_data.json` in the output dir, plus downloaded PDBs and TCR/pMHC split files.
 
+### `esm-featurize`
+
+Turn one or more protein sequences into ESM Cambrian (ESM C 300M) embeddings, written to disk as compressed NumPy archives. One sequence in → one `.npz` out. Representation-only — no generation, masking, structure prediction, or Forge API. Requires a local `esmc` conda env with the `esm` package.
+
+**Triggers:** "Embed this sequence with ESM C", "Featurize my FASTA with esmc_300m", "Get protein representations for these 50 sequences", "Per-residue ESM embeddings for clustering"
+
+**Output:** one `.npz` per sequence with per-residue embeddings (L×960 float32), the mean-pooled sequence embedding (960 float32), the input sequence, the id, and the model name.
+
 ## Workflow
 
 The holostructure skills form a pipeline:
