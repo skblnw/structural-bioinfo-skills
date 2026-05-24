@@ -44,12 +44,30 @@ Turn one or more protein sequences into ESM Cambrian (ESM C 300M) embeddings, wr
 
 **Output:** one `.npz` per sequence with per-residue embeddings (L×960 float32), the mean-pooled sequence embedding (960 float32), the input sequence, the id, and the model name.
 
+### `pharmacophore-analyzer`
+
+Compute a 3D pharmacophore from a protein-ligand co-crystal PDB using RDKit. Identifies the bound ligand, restores correct bond orders and hydrogens via a SMILES template (auto-fetched from the RCSB Chemical Component Dictionary), runs the `BaseFeatures.fdef` feature factory on the ligand, and keeps only features that engage the protein (structure-based / interaction-filtered, LigandScout-style).
+
+**Triggers:** "Compute a pharmacophore from co-crystal 1IEP", "Extract HBD/HBA/aromatic features from this bound ligand", "Build a structure-based pharmacophore query for virtual screening", "Generate a PML visualization of the pharmacophore"
+
+**Output:** `<pdb>.pharmacophore.json` (feature type, 3D coordinates, tolerance radius, binding partner residue) and a self-contained PyMOL `<pdb>.pharmacophore.pml` scene (ligand sticks + colored feature spheres).
+
+### `pharmacophore-report-generator`
+
+Consolidate per-PDB pharmacophore JSONs from N≥3 co-crystals of the same receptor into a single screening-ready markdown report. Surfaces conserved receptor residues that anchor each feature, computes retention statistics, and — when no consensus is supplied — derives one via Kabsch alignment of the orthosteric set followed by greedy single-linkage clustering.
+
+**Triggers:** "Write a pharmacophore report across these PDBs", "Build a consensus pharmacophore for virtual screening", "Compare pharmacophore features across cocrystals", "Summarize pharmacophore-analyzer results into a screening query"
+
+**Output:** a structured markdown report (executive summary, residue-resolved interaction tables, feature retention statistics, ASCII interaction map, data-quality caveats, file manifest) plus `consensus_pharmacophore.json` when one isn't already provided.
+
 ## Workflow
 
-The holostructure skills form a pipeline:
+The holostructure skills form a pipeline ending in a screening-ready pharmacophore:
 
 1. **Search** — `pdb-holostructure-search` → `holostructures.csv`
 2. **Extract** — `pdb-extractor --csv holostructures.csv --uniprot <ACCESSION>` → clean PDBs
+3. **Pharmacophore per structure** — `pharmacophore-analyzer` → one `*.pharmacophore.json` + `*.pharmacophore.pml` per PDB
+4. **Consensus report** — `pharmacophore-report-generator` → multi-structure markdown report + `consensus_pharmacophore.json`
 
 ```bash
 # 1. Find all holostructures for your target
@@ -57,6 +75,14 @@ python $HOME/.claude/plugins/structural-bioinfo/skills/pdb-holostructure-search/
 
 # 2. Download and extract clean monomer+ligand PDBs
 python $HOME/.claude/plugins/structural-bioinfo/skills/pdb-extractor/scripts/download_and_extract.py --csv atr_holo.csv --uniprot Q13535 --output-dir raw/
+
+# 3. Per-structure pharmacophore (loop over the extracted PDBs)
+for pdb in raw/*/*_clean.pdb; do
+  python $HOME/.claude/plugins/structural-bioinfo/skills/pharmacophore-analyzer/scripts/pharmacophore_analysis.py "$pdb" --out-dir pharmacophores/
+done
+
+# 4. Consensus report across all per-PDB pharmacophore JSONs
+python $HOME/.claude/plugins/structural-bioinfo/skills/pharmacophore-report-generator/scripts/extract_report_data.py pharmacophores/ -o pharmacophore_report/
 ```
 
 `search-epitope-host` is a standalone entry point for the epitope side — given peptides, it produces the parent-protein/position/structure report directly.

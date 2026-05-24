@@ -6,5 +6,5 @@
     "name": "Ukevi"
   },
   "license": "MIT",
-  "keywords": ["structural-biology", "pdb", "holostructure", "ligand", "protein", "drug-discovery", "molecular-dynamics", "epitope", "iedb", "alphafold", "immunology"]
+  "keywords": ["structural-biology", "pdb", "holostructure", "ligand", "protein", "drug-discovery", "molecular-dynamics", "epitope", "iedb", "alphafold", "immunology", "pharmacophore", "virtual-screening"]
 }

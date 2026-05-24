@@ -1,0 +1,44 @@
+{
+  "skill_name": "pharmacophore-analyzer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a clean PDB of the Abl kinase bound to imatinib at /Users/ukevi/.claude/skills/pharmacophore-analyzer-workspace/inputs/1IEP_clean.pdb. Can you compute the structure-based pharmacophore and give me both the JSON and the PML I can open in PyMOL? Use the default settings.",
+      "expected_output": "A successful run: pharmacophore_analysis.py is invoked on /tmp/1IEP_clean.pdb (or the user is told to point at it); the output JSON contains a list of features each with family, type, position [x,y,z], tolerance, ligand_atom_ids, and an interaction block citing residues from the Abl ATP-binding pocket (commonly THR315, GLU286, ASP381, MET318); the output PML loads the PDB, draws the imatinib (STI) as sticks, and renders colored pharmacophore spheres.",
+      "files": [],
+      "expectations": [
+        "The skill runs scripts/pharmacophore_analysis.py with 1IEP_clean.pdb as input.",
+        "The output JSON validates as JSON.",
+        "Every feature in the JSON has 'family', 'type', 'position' (length-3 list of numbers), and 'tolerance' fields.",
+        "The skill auto-detects STI as the ligand or honors --ligand-resname STI.",
+        "The output PML file contains 'load' for the PDB, 'pseudoatom phar_' lines, and 'show spheres, phar_*'.",
+        "At least one Donor or Acceptor feature is reported and has an interaction partner annotated."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I've got an HIV protease co-crystal at /Users/ukevi/.claude/skills/pharmacophore-analyzer-workspace/inputs/1HVR.pdb. Can you generate the full pharmacophore for me — I want to see ALL ligand features (skip the interaction filter) so I can compare which ones engage the protein vs which don't.",
+      "expected_output": "The skill runs with --include-all-features (auto-fetching the SMILES from RCSB CCD as the default). The output JSON has interaction_filtered=false and contains every detected ligand feature; features that engage the catalytic Asp25/Asp25' get a non-null interaction block, others have interaction=null. Both files are written.",
+      "files": [],
+      "expectations": [
+        "The skill is invoked with --include-all-features.",
+        "The JSON has 'metadata.interaction_filtered': false.",
+        "The JSON 'features' list contains entries with 'interaction': null for at least some features.",
+        "The skill auto-detects the ligand or uses the canonical SMILES from RCSB CCD (smiles_source: rcsb_ccd).",
+        "Both .pharmacophore.json and .pharmacophore.pml output files are written."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I'm offline right now. Can you run the pharmacophore tool on this protein-ligand PDB without trying to fetch anything from the internet? It's at /Users/ukevi/.claude/skills/pharmacophore-analyzer-workspace/inputs/test_complex.pdb.",
+      "expected_output": "The skill is invoked with --no-fetch. A clear stderr warning is shown that bond orders and aromaticity may be unreliable without a SMILES template. The JSON metadata records 'smiles_source': 'best_effort'. The skill still produces both output files even though feature accuracy is degraded.",
+      "files": [],
+      "expectations": [
+        "The skill is invoked with --no-fetch.",
+        "A warning about reduced accuracy is shown to the user.",
+        "Both .pharmacophore.json and .pharmacophore.pml files are produced.",
+        "The JSON 'ligand.smiles_source' field is 'best_effort'."
+      ]
+    }
+  ]
+}
