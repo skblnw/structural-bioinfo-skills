@@ -28,6 +28,22 @@ Map an epitope peptide (or a list of them) to its parent host protein via the IE
 
 **Output:** `<prefix>.md` and `<prefix>.html` — parent protein table (UniProt, name, organism, position + verification) and structure table (PDB or AlphaFold) per epitope.
 
+### `epitope-secondary-structure`
+
+Consume a `search-epitope-host` output bundle and compute, for each epitope, the **secondary structure it adopts in its parent** — a per-position probability over the 8 DSSP states (H,G,I,E,B,T,S,C) aggregated across the parent's experimentally solved structures, plus a simplified 3-state (H/E/C) consensus. Prioritizes experimental PDBs and considers **all** of them; AlphaFold-only parents are skipped and flagged. 8-state DSSP is computed locally with `mkdssp` (the RCSB Data API serves only coarse 3-state); RCSB SIFTS is used for the UniProt→structure residue mapping.
+
+**Triggers:** "What secondary structure are these epitopes in?", "Is this epitope helical or a strand in the parent?", "Per-position helix/sheet/coil probabilities for my peptides", "Map epitopes onto DSSP across all the parent's structures"
+
+**Output:** self-contained `report.html` (per-position stacked probability bars + 3-state consensus + contributing-structure tables), `epitope_ss.csv` (per epitope×parent consensus + fractions + status), `epitope_ss_positions.csv` (per-position 8+3 state probabilities), `structures_used.csv`, and `epitope_ss.json`. Requires the external `mkdssp` binary (`conda install -c conda-forge dssp`).
+
+### `af-secondary-structure`
+
+Assign **per-residue secondary structure** to an AlphaFold model (or any PDB/mmCIF) — the 8-state DSSP code (H,G,I,E,B,T,S,C) and the reduced 3-state (H/E/C) for every sequence position — with built-in **pLDDT confidence filtering** so unreliable disordered regions can be flagged or masked. Reads pLDDT from the B-factor column, classifies the four AlphaFold confidence bands (very-low/low/confident/very-high), masks low-pLDDT positions (`X`, cutoff configurable, default 70), and reports the contiguous disordered segments. DSSP is computed with **mdtraj** (no `mkdssp` binary; reads AlphaFold mmCIF directly, which mkdssp 3.x cannot). The AF-model counterpart to `epitope-secondary-structure` (which is epitope-centric and uses experimental PDBs). Handles one file or a whole batch/directory.
+
+**Triggers:** "Assign secondary structure to this AlphaFold model", "What's the 8-state DSSP of `AF-P04637-F1.pdb`?", "Which regions are reliable helices/strands vs disordered?", "Mask the low-pLDDT parts of the SS / find the disordered segments", "Run SS + confidence QC over this folder of AlphaFold models"
+
+**Output:** self-contained `report.html` + `report.md` (summary + per-residue SS/pLDDT strip), `summary.csv`/`summary.json` (one row per structure: SS %, band %, % masked, # disordered segments), and per structure `<stem>.residues.csv`, `<stem>.ss.txt` (FASTA-like sequence/ss8/ss3/masked strings), and `<stem>.json`. Requires **mdtraj** (`conda install -c conda-forge mdtraj`); auto-discovered from a conda env.
+
 ### `pdb-pmhc-tcr-search`
 
 Search the RCSB Protein Data Bank for **pMHC** and **TCR-pMHC** complex structures by epitope peptide sequence. Auto-classifies MHC class I vs II; splits TCR-pMHC complexes into derivative `<pdb>_pmhc.pdb` and `<pdb>_tcr.pdb` files for downstream docking / MD / pharmacophore work. Redundant copies are kept and grouped; the lowest-resolution member is flagged `representative`.
@@ -85,10 +101,15 @@ done
 python $HOME/.claude/plugins/structural-bioinfo/skills/pharmacophore-report-generator/scripts/extract_report_data.py pharmacophores/ -o pharmacophore_report/
 ```
 
-`search-epitope-host` is a standalone entry point for the epitope side — given peptides, it produces the parent-protein/position/structure report directly.
+`search-epitope-host` is a standalone entry point for the epitope side — given peptides, it produces the parent-protein/position/structure report directly, and `epitope-secondary-structure` chains onto its output to add per-epitope DSSP secondary structure.
 
 ```bash
-python $HOME/.claude/plugins/structural-bioinfo/skills/search-epitope-host/scripts/search_epitope_host.py SIINFEKL GILGFVFTL -o epitopes
+# map epitopes -> parent protein + position + structures
+python $HOME/.claude/plugins/structural-bioinfo/skills/search-epitope-host/scripts/search_epitope_host.py SIINFEKL GILGFVFTL -o epitopes/
+
+# annotate the secondary structure each epitope adopts in its parent (needs mkdssp)
+python $HOME/.claude/plugins/structural-bioinfo/skills/epitope-secondary-structure/scripts/epitope_ss.py \
+  epitopes/ --mkdssp-path "$(conda run -n <env> which mkdssp)" -o epitopes/secondary_structure/
 ```
 
 ## Installation
@@ -113,6 +134,7 @@ opkg install ~/.claude/plugins/structural-bioinfo --platforms opencode
 
 - Python 3.6+ (stdlib only — no pip install needed)
 - Internet access (RCSB PDB APIs, UniProt REST)
+- `mkdssp` for `epitope-secondary-structure` (`conda install -c conda-forge dssp`) and `mdtraj` for `af-secondary-structure` (`conda install -c conda-forge mdtraj`); all other skills are dependency-free
 
 ## License
 

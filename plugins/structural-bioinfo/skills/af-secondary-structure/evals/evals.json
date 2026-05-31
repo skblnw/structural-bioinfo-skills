@@ -1,0 +1,67 @@
+{
+  "_about": "Smoke-test cases for af-secondary-structure. Each case runs scripts/af_ss.py on a real AlphaFold model and checks the per-residue 8/3-state DSSP assignment, the pLDDT confidence bands (read from the B-factor column), the masked SS string, and the disordered-segment detection. Reference models: AF-P69905-F1 (HBA_HUMAN, well-folded all-alpha globin) and AF-P04637-F1 (P53_HUMAN, folded DNA-binding core flanked by disordered termini/linkers). Band fractions are cross-checked against the AlphaFold DB API's own fractionPlddt* values.",
+  "requires": "mdtraj in a conda env (auto-discovered; conda install -c conda-forge mdtraj). AlphaFold models downloaded from the AlphaFold DB (see how_to_run). No other dependencies.",
+  "cases": [
+    {
+      "name": "well_folded_all_alpha",
+      "model": "AF-P69905-F1 (HBA_HUMAN)",
+      "expect": {
+        "status": "ok",
+        "n_residues": 142,
+        "ss3_frac_H_gte": 0.70,
+        "ss3_frac_E": 0.0,
+        "mean_plddt_approx": 98.1,
+        "band_frac_very_high_approx": 0.993,
+        "n_disordered_segments": 1,
+        "note": "Globin fold: mostly H with some G/I; only the N-terminal Met (pLDDT 65.4) is below 70, so exactly one length-1 disordered segment and one masked position."
+      }
+    },
+    {
+      "name": "disordered_termini_and_linkers",
+      "model": "AF-P04637-F1 (P53_HUMAN)",
+      "expect": {
+        "status": "ok",
+        "n_residues": 393,
+        "band_frac_very_low_approx": 0.298,
+        "band_frac_very_high_approx": 0.527,
+        "frac_masked_approx": 0.402,
+        "disordered_segments_include": ["1-19", "26-93", "293-323", "356-393"],
+        "folded_core_retained": "residues ~94-292 (the DNA-binding domain: beta-sandwich strands + helix) are mostly pLDDT>=70 and NOT masked",
+        "note": "Masking at cutoff 70 removes the N-terminal transactivation/proline-rich region, the post-DBD linker, and the C-terminal regulatory tail, while keeping the folded core."
+      }
+    },
+    {
+      "name": "pdb_equals_mmcif",
+      "model": "AF-P69905-F1 .pdb vs .cif",
+      "expect": {
+        "ss8_identical": true,
+        "ss3_identical": true,
+        "plddt_identical_within": 0.01,
+        "note": "mdtraj reads AlphaFold mmCIF directly; the two formats must yield identical SS and pLDDT."
+      }
+    },
+    {
+      "name": "no_mask_flag",
+      "model": "AF-P69905-F1 --no-mask",
+      "expect": {
+        "X_in_ss8_masked": false,
+        "ss8_masked_equals_ss8": true,
+        "note": "--no-mask reports pLDDT + bands but never substitutes X; the masked string equals the raw string."
+      }
+    },
+    {
+      "name": "invariants",
+      "expect": {
+        "lengths_equal": "len(sequence) == len(ss8) == len(ss3) == len(ss8_masked) == n_residues",
+        "ss8_alphabet": "subset of {H,G,I,E,B,T,S,C}",
+        "ss3_alphabet": "subset of {H,E,C}",
+        "masked_alphabet": "ss8_masked subset of {H,G,I,E,B,T,S,C,X}",
+        "mask_definition": "count('X') in ss8_masked == number of residues with pLDDT < cutoff (when masking on)",
+        "collapse_8_to_3": "{H,G,I}->H, {E,B}->E, {T,S,C}->C",
+        "bands_match_AF_DB": "summary.band_frac within ~0.02 of the AlphaFold DB API fractionPlddt{VeryLow,Low,Confident,VeryHigh}",
+        "segments_below_cutoff": "every residue inside a disordered_segment has pLDDT < cutoff"
+      }
+    }
+  ],
+  "how_to_run": "D=$(mktemp -d); for A in P69905 P04637; do U=$(curl -fsSL https://alphafold.ebi.ac.uk/api/prediction/$A | python3 -c 'import sys,json;print(json.load(sys.stdin)[0][\"pdbUrl\"])'); curl -fsSL \"$U\" -o \"$D/AF-$A-F1.pdb\"; done; python scripts/af_ss.py \"$D\" --glob '*.pdb' -o \"$D/out\"; python3 -c \"import json;d=json.load(open('$D/out/per_structure/AF-P69905-F1.json'));s=d['summary'];print('HBA %H',round(s['ss3_frac']['H']*100,1),'mean pLDDT',s['mean_plddt'],'segs',s['n_disordered_segments'])\""
+}

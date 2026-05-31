@@ -1,0 +1,88 @@
+{
+  "_about": "Smoke-test cases for epitope-secondary-structure. Each case runs the bundled script over a search-epitope-host output bundle and checks the per-(epitope,parent) row's status, source selection, and DSSP-derived secondary-structure consensus. Validates: experimental-only structure selection (AlphaFold-only parents skipped), the UniProt->label->auth residue mapping + mkdssp 8-state parse, the per-structure aggregation, the 8->3 collapse, and the status taxonomy. Reference run = the EBV HLA-A*02:01 9-mer host_mapping set.",
+  "requires": "mkdssp on PATH or via --mkdssp-path (conda install -c conda-forge dssp). Network access to data.rcsb.org / files.rcsb.org unless --offline against a warm cache.",
+  "cases": [
+    {
+      "name": "experimental_strand_loop_strand",
+      "epitope": "AFLGERVTL",
+      "uniprot_acc": "P03228",
+      "expect": {
+        "status": "ok",
+        "source_type": "experimental",
+        "occurrence": "23-31",
+        "n_structures_used_gte": 2,
+        "ss3_consensus": "EECCCCEEE",
+        "note": "BARF1 23-31 sits in a beta strand / loop / strand; all 4 PDBs agree (prob 1.0)."
+      }
+    },
+    {
+      "name": "experimental_all_helix",
+      "epitope": "QLLQHYREV",
+      "uniprot_acc": "P03206",
+      "expect": {
+        "status": "ok",
+        "source_type": "experimental",
+        "ss3_consensus": "HHHHHHHHH",
+        "note": "BZLF1 bZIP region is alpha-helical."
+      }
+    },
+    {
+      "name": "pmhc_excluded_by_default",
+      "epitope": "FLRGRAYGL",
+      "uniprot_acc": "Q3KST2",
+      "expect": {
+        "status": "only_pmhc",
+        "note": "The only covering structures are pMHC complexes (the peptide chain SIFTS-aligns to the parent at 325-333, span < 25), so they are excluded by the default --min-align-length 25 -> only_pmhc. With --min-align-length 0 this becomes status=ok with ss3_consensus=CCCCCCCCC (the extended MHC-bound conformation)."
+      }
+    },
+    {
+      "name": "alphafold_only_skipped",
+      "epitope": "GLCTLVAML",
+      "uniprot_acc": "Q04360",
+      "expect": {
+        "status": "no_experimental_structure",
+        "source_type": "no_experimental_structure",
+        "note": "ICP27 homolog has only an AlphaFold model -> skipped and flagged (default; --use-alphafold + DSSP 4 to include)."
+      }
+    },
+    {
+      "name": "no_structure_parent",
+      "epitope": "CLGGLLTMV",
+      "uniprot_acc": "P0C729",
+      "expect": {
+        "status": "no_structure",
+        "note": "GD1-strain LMP2 has no PDB and no AlphaFold model. (The same epitope maps to P13285 with a structure.)"
+      }
+    },
+    {
+      "name": "epitope_outside_crystallized_region",
+      "epitope": "RFIAQLLLL",
+      "uniprot_acc": "P03228",
+      "expect": {
+        "status": "not_in_any_structure",
+        "source_type": "experimental",
+        "occurrence": "3-11",
+        "note": "BARF1 has PDBs, but the 2CH8 crystal covers 21-221; residues 3-11 (signal region) are in no deposited structure."
+      }
+    },
+    {
+      "name": "no_position_strain_variant",
+      "epitope": "CLGGLITMV",
+      "uniprot_acc": "P13285",
+      "expect": {
+        "status": "no_position",
+        "note": "Variant peptide not found verbatim on the canonical P13285 sequence -> nothing to map."
+      }
+    },
+    {
+      "name": "invariants",
+      "expect": {
+        "per_position_prob8_sums_to_1": true,
+        "ss3_length_equals_epitope_length": true,
+        "collapse_8_to_3": "{H,G,I}->H, {E,B}->E, {T,S,C}->C; prob3 == summed prob8",
+        "status_partition": "ok + not_in_any_structure + no_structure + no_position + no_experimental_structure + only_pmhc + unmodeled == total rows"
+      }
+    }
+  ],
+  "how_to_run": "MK=$(conda run -n <env> which mkdssp); python scripts/epitope_ss.py <host_mapping_dir> --mkdssp-path \"$MK\" -o /tmp/ss_eval && python3 -c \"import csv;rows={ (r['epitope'],r['uniprot_acc']):r for r in csv.DictReader(open('/tmp/ss_eval/epitope_ss.csv'))};print(rows[('AFLGERVTL','P03228')]['status'], rows[('AFLGERVTL','P03228')]['ss3_consensus'])\""
+}
