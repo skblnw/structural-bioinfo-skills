@@ -384,7 +384,13 @@ def process_epitope(seq: str, use_alphafold: bool = True,
     _log(f"[IEDB] {seq}", log)
     antigens = query_iedb(seq)
     if not antigens:
-        return {"epitope": seq, "status": "unmatched", "parents": [],
+        # No curated IEDB epitope. That is NOT the same as "doesn't come from
+        # a known protein" — the peptide may still be a genuine fragment of a
+        # parent we resolve elsewhere in this run (or that the user names with
+        # --parent). enrich_with_fallback_parents() fills `parents` in a second
+        # pass; here we just record that IEDB itself had no hit.
+        return {"epitope": seq, "status": "ok", "iedb_status": "no_iedb_match",
+                "parents": [],
                 "assay_outcomes": [], "mhc_classes": [], "mhc_alleles": [],
                 "hla_outcomes": {}}
     # Per-allele (HLA, outcome) pairs from the assay endpoints. Two extra
@@ -444,6 +450,7 @@ def process_epitope(seq: str, use_alphafold: bool = True,
             parents.append({
                 "uniprot_acc": acc,
                 "status": "uniprot_fetch_failed",
+                "mapping_source": "iedb_curated",
                 "error": str(e),
                 "antigen_names": sorted(g["antigen_names"]),
                 "organisms": sorted(g["organisms"]),
@@ -454,6 +461,7 @@ def process_epitope(seq: str, use_alphafold: bool = True,
             parents.append({
                 "uniprot_acc": acc,
                 "status": "uniprot_not_found",
+                "mapping_source": "iedb_curated",
                 "antigen_names": sorted(g["antigen_names"]),
                 "organisms": sorted(g["organisms"]),
                 "claimed_positions": g["claimed_positions"],
@@ -470,6 +478,7 @@ def process_epitope(seq: str, use_alphafold: bool = True,
         parents.append({
             "uniprot_acc": acc,
             "status": "ok",
+            "mapping_source": "iedb_curated",
             "name": up["name"],
             "organism": up["organism"],
             "length": up["length"],
@@ -481,11 +490,110 @@ def process_epitope(seq: str, use_alphafold: bool = True,
             "pdb_xrefs": up["pdb_xrefs"],
             "alphafold": af,
         })
-    return {"epitope": seq, "status": "ok", "parents": parents,
+    return {"epitope": seq, "status": "ok", "iedb_status": "matched",
+            "parents": parents,
             "assay_outcomes": ep_outcomes,
             "mhc_classes": ep_mhc_classes,
             "mhc_alleles": ep_mhc_alleles,
             "hla_outcomes": hla_outcomes}
+
+
+# ---------- Fallback parent mapping ----------
+#
+# IEDB's epitope_search is exact-match, so a peptide that is a genuine
+# fragment of a protein but was never curated as an epitope returns no hit
+# and, historically, no parent at all. That conflated two very different
+# facts — "not curated in IEDB" and "doesn't come from a known protein" —
+# and made real antigen fragments look like dead ends.
+#
+# We close that gap with a second pass. Any parent we DID resolve from IEDB
+# in this run (or that the user named with --parent) becomes a candidate.
+# Each so-far-unmapped peptide is searched, as an exact substring, against
+# every candidate's canonical sequence; a hit is a confident mapping with
+# verified coordinates. `mapping_source` records HOW each mapping was found
+# so IEDB-curated mappings stay distinguishable from substring-derived ones.
+
+def build_parent_pool(results: list[dict], extra_accs: list[str],
+                      use_alphafold: bool = True, log=sys.stderr) -> dict[str, dict]:
+    """Collect candidate parents for the substring fallback: every parent
+    successfully resolved from IEDB this run, plus any accessions the user
+    passed with --parent (fetched from UniProt on demand). Returns
+    {acc: {uniprot_acc, name, organism, length, sequence, pdb_xrefs, alphafold}}."""
+    pool: dict[str, dict] = {}
+    for r in results:
+        if r.get("status") != "ok":
+            continue
+        for p in r.get("parents") or []:
+            if p.get("status") == "ok" and p["uniprot_acc"] not in pool:
+                pool[p["uniprot_acc"]] = {
+                    "uniprot_acc": p["uniprot_acc"],
+                    "name": p.get("name"),
+                    "organism": p.get("organism"),
+                    "length": p.get("length"),
+                    "sequence": p.get("sequence", ""),
+                    "pdb_xrefs": p.get("pdb_xrefs", []),
+                    "alphafold": p.get("alphafold", []),
+                }
+    for raw in extra_accs:
+        acc = raw.strip().split(".")[0]
+        if not acc or acc in pool:
+            continue
+        _log(f"[UniProt] {acc} (--parent)", log)
+        try:
+            up = fetch_uniprot(acc)
+        except Exception as e:  # noqa: BLE001
+            _log(f"[error] --parent {acc}: {e}", log)
+            continue
+        if not up:
+            _log(f"[warn] --parent {acc}: not found in UniProt", log)
+            continue
+        af: list[dict] = []
+        if not up["pdb_xrefs"] and use_alphafold:
+            af = fetch_alphafold(acc)
+        pool[acc] = {
+            "uniprot_acc": acc, "name": up["name"], "organism": up["organism"],
+            "length": up["length"], "sequence": up["sequence"],
+            "pdb_xrefs": up["pdb_xrefs"], "alphafold": af,
+        }
+    return pool
+
+
+def enrich_with_fallback_parents(results: list[dict], pool: dict[str, dict],
+                                 provided_accs: set[str]) -> None:
+    """For each processed peptide, attach any pool parent whose canonical
+    sequence contains the peptide as an exact substring and that isn't already
+    mapped to it. Mutates `results` in place. A mapping is tagged
+    `provided_substring` when the parent was user-supplied (--parent), else
+    `batch_substring` (borrowed from another peptide's IEDB parent)."""
+    if not pool:
+        return
+    for r in results:
+        if r.get("status") != "ok":
+            continue
+        seq = r["epitope"]
+        already = {p["uniprot_acc"] for p in r.get("parents") or []}
+        for acc, cand in pool.items():
+            if acc in already:
+                continue
+            check = verify_position(cand["sequence"], seq, None, None)
+            if not check["occurrences"]:
+                continue
+            source = "provided_substring" if acc in provided_accs else "batch_substring"
+            r.setdefault("parents", []).append({
+                "uniprot_acc": acc,
+                "status": "ok",
+                "mapping_source": source,
+                "name": cand["name"],
+                "organism": cand["organism"],
+                "length": cand["length"],
+                "sequence": cand["sequence"],
+                "antigen_names": [],
+                "organisms_iedb": [],
+                "iedb_structure_ids": [],
+                "position_checks": [check],
+                "pdb_xrefs": cand["pdb_xrefs"],
+                "alphafold": cand["alphafold"],
+            })
 
 
 # ---------- Rendering ----------
@@ -505,99 +613,124 @@ def _pos_summary(checks: list[dict]) -> str:
     return "; ".join(parts) + extra
 
 
+def _is_mapped(r: dict) -> bool:
+    """A peptide is mapped if it has at least one successfully-resolved parent,
+    whether that parent came from IEDB curation or the substring fallback."""
+    return r.get("status") == "ok" and any(
+        p.get("status") == "ok" for p in r.get("parents") or [])
+
+
+def _classify(results: list[dict]) -> dict[str, list[dict]]:
+    """Bucket results along the two axes the report cares about: IEDB curation
+    (`iedb_matched`) and parent mapping (`mapped` / `unmapped`). These are
+    independent — a peptide can be unmatched in IEDB yet still mapped."""
+    processed = [r for r in results if r.get("status") == "ok"]
+    mapped = [r for r in processed if _is_mapped(r)]
+    return {
+        "processed": processed,
+        "iedb_matched": [r for r in processed if r.get("iedb_status") == "matched"],
+        "mapped": mapped,
+        "substring_mapped": [r for r in mapped if r.get("iedb_status") != "matched"],
+        "unmapped": [r for r in processed if not _is_mapped(r)],
+        "invalid": [r for r in results if r.get("status") == "invalid"],
+        "error": [r for r in results if r.get("status") == "error"],
+    }
+
+
+def _position_cells(checks: list[dict]) -> tuple[str, str, str]:
+    """Render (claimed_positions, position_verified, occurrences) cells from a
+    parent's position_checks. When IEDB made no positional claim but the
+    peptide was located by exact substring (fallback parents, or IEDB parents
+    sourced only from `parent_source_antigen_iris`), `position_verified` is
+    `yes` — the occurrence itself is the verification."""
+    claimed = "; ".join(f"{c['claimed_start']}-{c['claimed_end']}"
+                        for c in checks if c.get("claimed_start"))
+    occ = checks[0]["occurrences"] if checks else []
+    occ_str = ", ".join(f"{s}-{e}" for s, e in occ)
+    if claimed:
+        verified = "; ".join("yes" if c["claimed_match"] else "no"
+                             for c in checks if c.get("claimed_start"))
+    elif occ:
+        verified = "yes"
+    else:
+        verified = ""
+    return claimed, verified, occ_str
+
+
+def _blank_summary_row(ep: str, iedb_status: str, mapping_source: str = "") -> dict:
+    return {
+        "epitope": ep, "length": len(ep),
+        "iedb_status": iedb_status, "mapping_source": mapping_source,
+        "uniprot_acc": "", "protein_name": "", "organism": "",
+        "assay_outcomes": "", "mhc_classes": "", "mhc_alleles": "",
+        "hla_outcomes": "", "uniprot_length": "", "claimed_positions": "",
+        "position_verified": "", "occurrences": "", "n_pdb": 0,
+        "has_alphafold": False,
+    }
+
+
 def _summary_rows(results: list[dict]) -> list[dict]:
-    """Flat one-row-per-(epitope, parent) summary used for the top table
-    and the master CSV. Unmatched/invalid epitopes get a single row."""
+    """Flat one-row-per-(epitope, parent) summary used for the top table and
+    the master CSV. Two orthogonal axes are reported per row:
+      `iedb_status`    — matched / no_iedb_match (is it curated in IEDB?)
+      `mapping_source` — iedb_curated / batch_substring / provided_substring
+                         (how, if at all, was it mapped to a parent protein?)
+    A peptide can be `no_iedb_match` yet still map to a parent (via substring),
+    which is exactly the case the single old `status` column couldn't express.
+    Unmapped / invalid / error epitopes still get one row so every input is
+    accounted for."""
     rows: list[dict] = []
     for r in results:
         ep = r["epitope"]
         status = r.get("status")
         if status == "ok":
-            for p in r["parents"]:
+            iedb_status = r.get("iedb_status", "")
+            assay = {
+                "assay_outcomes": "; ".join(r.get("assay_outcomes") or []),
+                "mhc_classes": "; ".join(r.get("mhc_classes") or []),
+                "mhc_alleles": _fmt_alleles(r.get("mhc_alleles") or []),
+                "hla_outcomes": _fmt_hla_outcomes(r.get("hla_outcomes") or {}),
+            }
+            parents = r.get("parents") or []
+            if not parents:
+                # Processed but mapped to nothing — typically no_iedb_match with
+                # no parent in the pool that contains it.
+                rows.append(_blank_summary_row(ep, iedb_status))
+                continue
+            for p in parents:
+                src = p.get("mapping_source", "")
                 if p.get("status") != "ok":
-                    rows.append({
-                        "epitope": ep,
-                        "length": len(ep),
-                        "status": "uniprot_fetch_failed",
-                        "uniprot_acc": p["uniprot_acc"],
-                        "protein_name": "",
-                        "organism": "",
-                        "assay_outcomes": "; ".join(r.get("assay_outcomes") or []),
-                        "mhc_classes": "; ".join(r.get("mhc_classes") or []),
-                        "mhc_alleles": _fmt_alleles(r.get("mhc_alleles") or []),
-                        "hla_outcomes": _fmt_hla_outcomes(r.get("hla_outcomes") or {}),
-                        "uniprot_length": "",
-                        "claimed_positions": "",
-                        "position_verified": "",
-                        "occurrences": "",
-                        "n_pdb": 0,
-                        "has_alphafold": False,
-                    })
+                    row = _blank_summary_row(ep, iedb_status, src)
+                    row["uniprot_acc"] = p["uniprot_acc"]
+                    row.update(assay)
+                    rows.append(row)
                     continue
-                claimed = "; ".join(
-                    f"{c['claimed_start']}-{c['claimed_end']}"
-                    for c in p["position_checks"] if c["claimed_start"])
-                verified = "; ".join(
-                    ("yes" if c["claimed_match"] else "no")
-                    for c in p["position_checks"] if c["claimed_start"])
-                occ = p["position_checks"][0]["occurrences"] if p["position_checks"] else []
+                claimed, verified, occ = _position_cells(p["position_checks"])
                 rows.append({
-                    "epitope": ep,
-                    "length": len(ep),
-                    "status": "matched",
+                    "epitope": ep, "length": len(ep),
+                    "iedb_status": iedb_status, "mapping_source": src,
                     "uniprot_acc": p["uniprot_acc"],
                     "protein_name": p["name"] or "",
                     "organism": p["organism"] or "",
-                    "assay_outcomes": "; ".join(r.get("assay_outcomes") or []),
-                    "mhc_classes": "; ".join(r.get("mhc_classes") or []),
-                    "mhc_alleles": _fmt_alleles(r.get("mhc_alleles") or []),
-                    "hla_outcomes": _fmt_hla_outcomes(r.get("hla_outcomes") or {}),
+                    **assay,
                     "uniprot_length": p["length"],
                     "claimed_positions": claimed,
                     "position_verified": verified,
-                    "occurrences": ", ".join(f"{s}-{e}" for s, e in occ),
+                    "occurrences": occ,
                     "n_pdb": len(p["pdb_xrefs"]),
                     "has_alphafold": bool(p["alphafold"]),
                 })
-        elif status == "unmatched":
-            rows.append({
-                "epitope": ep, "length": len(ep), "status": "no_iedb_match",
-                "uniprot_acc": "", "protein_name": "", "organism": "",
-                "assay_outcomes": "", "mhc_classes": "", "mhc_alleles": "",
-                "hla_outcomes": "",
-                "uniprot_length": "", "claimed_positions": "",
-                "position_verified": "", "occurrences": "",
-                "n_pdb": 0, "has_alphafold": False,
-            })
         elif status == "invalid":
-            rows.append({
-                "epitope": ep, "length": len(ep),
-                "status": f"invalid: {r.get('error', '')}",
-                "uniprot_acc": "", "protein_name": "", "organism": "",
-                "assay_outcomes": "", "mhc_classes": "", "mhc_alleles": "",
-                "hla_outcomes": "",
-                "uniprot_length": "", "claimed_positions": "",
-                "position_verified": "", "occurrences": "",
-                "n_pdb": 0, "has_alphafold": False,
-            })
+            rows.append(_blank_summary_row(ep, f"invalid: {r.get('error', '')}"))
         elif status == "error":
-            rows.append({
-                "epitope": ep, "length": len(ep),
-                "status": f"error: {r.get('error', '')}",
-                "uniprot_acc": "", "protein_name": "", "organism": "",
-                "assay_outcomes": "", "mhc_classes": "", "mhc_alleles": "",
-                "hla_outcomes": "",
-                "uniprot_length": "", "claimed_positions": "",
-                "position_verified": "", "occurrences": "",
-                "n_pdb": 0, "has_alphafold": False,
-            })
+            rows.append(_blank_summary_row(ep, f"error: {r.get('error', '')}"))
     return rows
 
 
 SUMMARY_COLUMNS = [
-    "epitope", "length", "status", "uniprot_acc", "protein_name",
-    "organism", "assay_outcomes", "mhc_classes", "mhc_alleles",
-    "hla_outcomes",
+    "epitope", "length", "iedb_status", "mapping_source", "uniprot_acc",
+    "protein_name", "organism", "assay_outcomes", "mhc_classes",
+    "mhc_alleles", "hla_outcomes",
     "uniprot_length", "claimed_positions", "position_verified",
     "occurrences", "n_pdb", "has_alphafold",
 ]
@@ -719,23 +852,34 @@ def render_markdown(results: list[dict], summary_rows: list[dict],
     fasta_map = fasta_map or {}
     map_map = map_map or {}
     lines = ["# Epitope → host protein report", ""]
-    matched = [r for r in results if r.get("status") == "ok"]
-    unmatched = [r for r in results if r.get("status") == "unmatched"]
-    invalid = [r for r in results if r.get("status") == "invalid"]
+    c = _classify(results)
     lines.append(f"- Input epitopes: **{len(results)}**")
-    lines.append(f"- Matched in IEDB: **{len(matched)}**")
-    lines.append(f"- Unmatched: **{len(unmatched)}**")
-    if invalid:
-        lines.append(f"- Invalid input: **{len(invalid)}**")
+    lines.append(f"- Matched in IEDB (curated epitope): **{len(c['iedb_matched'])}**")
+    mapped_line = f"- Mapped to a parent protein: **{len(c['mapped'])}**"
+    if c["substring_mapped"]:
+        mapped_line += (f" — of which **{len(c['substring_mapped'])}** by substring "
+                        "(genuine fragment, but not curated in IEDB)")
+    lines.append(mapped_line)
+    lines.append(f"- Unmapped: **{len(c['unmapped'])}**")
+    if c["invalid"]:
+        lines.append(f"- Invalid input: **{len(c['invalid'])}**")
+    if c["error"]:
+        lines.append(f"- Errored: **{len(c['error'])}**")
+    lines.append("")
+    lines.append("> **Matched in IEDB** and **mapped to a parent** answer "
+                 "different questions. IEDB's epitope search is exact-match, so "
+                 "a peptide can be absent from IEDB yet still be a verified "
+                 "fragment of its parent protein. The `iedb_status` and "
+                 "`mapping_source` columns keep the two separate.")
     lines.append("")
 
     # --- Top summary table: one row per (epitope, parent) ---
     lines.append("## Summary")
     lines.append("")
-    lines.append("| Epitope | Len | Status | UniProt | Protein | Organism | "
+    lines.append("| Epitope | Len | IEDB | Mapping | UniProt | Protein | Organism | "
                  "Assay outcome | MHC class | HLA outcomes (per-allele) | "
                  "Position (claimed → verified) | PDB | AF |")
-    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for row in summary_rows:
         acc = row["uniprot_acc"]
         acc_cell = (f"[{acc}](https://www.uniprot.org/uniprotkb/{acc})"
@@ -745,12 +889,15 @@ def render_markdown(results: list[dict], summary_rows: list[dict],
             verified = row["position_verified"].split("; ")
             claimed = row["claimed_positions"].split("; ")
             pos_cell = "; ".join(
-                f"{c} {'✓' if v == 'yes' else '✗'}"
-                for c, v in zip(claimed, verified))
+                f"{cc} {'✓' if v == 'yes' else '✗'}"
+                for cc, v in zip(claimed, verified))
             if row["occurrences"]:
                 pos_cell += f" | found at {row['occurrences']}"
+        elif row["occurrences"]:
+            pos_cell = f"found at {row['occurrences']}"
         lines.append(
-            f"| `{row['epitope']}` | {row['length']} | {row['status']} "
+            f"| `{row['epitope']}` | {row['length']} "
+            f"| {row.get('iedb_status', '')} | {row.get('mapping_source', '') or '–'} "
             f"| {acc_cell} | {row['protein_name']} | {row['organism']} "
             f"| {row.get('assay_outcomes', '')} | {row.get('mhc_classes', '')} "
             f"| {row.get('hla_outcomes', '')} "
@@ -763,7 +910,7 @@ def render_markdown(results: list[dict], summary_rows: list[dict],
 
     lines.append("## Per-epitope details")
     lines.append("")
-    for r in matched:
+    for r in c["mapped"]:
         ep = r["epitope"]
         lines.append(f"## Epitope `{ep}` ({len(ep)} aa)")
         lines.append("")
@@ -819,16 +966,21 @@ def render_markdown(results: list[dict], summary_rows: list[dict],
                 lines.append("_No experimental PDB and no AlphaFold prediction available._")
                 lines.append("")
 
-    if unmatched:
-        lines.append("## Unmatched epitopes (no IEDB hit)")
+    if c["unmapped"]:
+        lines.append("## Unmapped epitopes")
         lines.append("")
-        for r in unmatched:
+        lines.append("_Not curated in IEDB and not found as an exact substring "
+                     "of any resolved parent. Pass the expected parent with "
+                     "`--parent <UNIPROT_ACC>` if you know it — a peptide can be "
+                     "absent here only because no candidate parent was in scope._")
+        lines.append("")
+        for r in c["unmapped"]:
             lines.append(f"- `{r['epitope']}`")
         lines.append("")
-    if invalid:
+    if c["invalid"]:
         lines.append("## Invalid input")
         lines.append("")
-        for r in invalid:
+        for r in c["invalid"]:
             lines.append(f"- `{r['epitope']}` — {r['error']}")
         lines.append("")
     return "\n".join(lines)
@@ -861,19 +1013,27 @@ def render_html(results: list[dict], summary_rows: list[dict],
                  f"<title>Epitope → host protein report</title>"
                  f"<style>{css}</style></head><body>")
     parts.append("<h1>Epitope → host protein report</h1>")
-    matched = [r for r in results if r.get("status") == "ok"]
-    unmatched = [r for r in results if r.get("status") == "unmatched"]
-    invalid = [r for r in results if r.get("status") == "invalid"]
+    cls = _classify(results)
+    sub = (f" (of which {len(cls['substring_mapped'])} by substring)"
+           if cls["substring_mapped"] else "")
     parts.append("<ul>"
                  f"<li>Input epitopes: <b>{len(results)}</b></li>"
-                 f"<li>Matched in IEDB: <b>{len(matched)}</b></li>"
-                 f"<li>Unmatched: <b>{len(unmatched)}</b></li>"
-                 + (f"<li>Invalid input: <b>{len(invalid)}</b></li>" if invalid else "")
+                 f"<li>Matched in IEDB (curated epitope): <b>{len(cls['iedb_matched'])}</b></li>"
+                 f"<li>Mapped to a parent protein: <b>{len(cls['mapped'])}</b>{sub}</li>"
+                 f"<li>Unmapped: <b>{len(cls['unmapped'])}</b></li>"
+                 + (f"<li>Invalid input: <b>{len(cls['invalid'])}</b></li>" if cls["invalid"] else "")
+                 + (f"<li>Errored: <b>{len(cls['error'])}</b></li>" if cls["error"] else "")
                  + "</ul>")
+    parts.append("<p class='muted'><b>Matched in IEDB</b> and <b>mapped to a "
+                 "parent</b> are different questions — IEDB's epitope search is "
+                 "exact-match, so a peptide can be absent from IEDB yet still be "
+                 "a verified fragment of its parent protein. The IEDB and "
+                 "Mapping columns keep the two separate.</p>")
 
     # Top summary table
     parts.append("<h2>Summary</h2>")
-    parts.append("<table><tr><th>Epitope</th><th>Len</th><th>Status</th>"
+    parts.append("<table><tr><th>Epitope</th><th>Len</th><th>IEDB</th>"
+                 "<th>Mapping</th>"
                  "<th>UniProt</th><th>Protein</th><th>Organism</th>"
                  "<th>Assay outcome</th><th>MHC class</th>"
                  "<th>HLA outcomes (per-allele)</th>"
@@ -888,23 +1048,28 @@ def render_html(results: list[dict], summary_rows: list[dict],
             verified = row["position_verified"].split("; ")
             claimed = row["claimed_positions"].split("; ")
             pieces = []
-            for c, v in zip(claimed, verified):
-                cls = "ok" if v == "yes" else "bad"
+            for cc, v in zip(claimed, verified):
+                klass = "ok" if v == "yes" else "bad"
                 sym = "✓" if v == "yes" else "✗"
-                pieces.append(f"<span class='{cls}'>{escape(c)} {sym}</span>")
+                pieces.append(f"<span class='{klass}'>{escape(cc)} {sym}</span>")
             pos_cell = "; ".join(pieces)
             if row["occurrences"]:
                 pos_cell += (" | <span class='muted'>found at "
                              f"{escape(row['occurrences'])}</span>")
+        elif row["occurrences"]:
+            pos_cell = ("<span class='muted'>found at "
+                        f"{escape(row['occurrences'])}</span>")
         outcome_cell = escape(row.get("assay_outcomes", ""))
         if "Positive" in row.get("assay_outcomes", "") and "Negative" in row.get("assay_outcomes", ""):
             outcome_cell = f"<span class='bad'>{outcome_cell}</span>"
         elif row.get("assay_outcomes", "").startswith("Negative"):
             outcome_cell = f"<span class='muted'>{outcome_cell}</span>"
+        map_cell = escape(row.get("mapping_source", "") or "–")
         parts.append(
             f"<tr><td><code>{escape(row['epitope'])}</code></td>"
             f"<td>{row['length']}</td>"
-            f"<td>{escape(row['status'])}</td>"
+            f"<td>{escape(row.get('iedb_status', ''))}</td>"
+            f"<td>{map_cell}</td>"
             f"<td>{acc_cell}</td>"
             f"<td>{escape(row['protein_name'])}</td>"
             f"<td>{escape(row['organism'])}</td>"
@@ -927,14 +1092,18 @@ def render_html(results: list[dict], summary_rows: list[dict],
         "<code>report.md</code></a> for the full per-epitope writeup, or "
         "follow the UniProt / map links per row above.</p>")
 
-    if unmatched:
-        parts.append("<h2>Unmatched epitopes (no IEDB hit)</h2><ul>")
-        for r in unmatched:
+    if cls["unmapped"]:
+        parts.append("<h2>Unmapped epitopes</h2>"
+                     "<p class='muted'>Not curated in IEDB and not found as an "
+                     "exact substring of any resolved parent. Pass the expected "
+                     "parent with <code>--parent &lt;UNIPROT_ACC&gt;</code> if you "
+                     "know it.</p><ul>")
+        for r in cls["unmapped"]:
             parts.append(f"<li><code>{escape(r['epitope'])}</code></li>")
         parts.append("</ul>")
-    if invalid:
+    if cls["invalid"]:
         parts.append("<h2>Invalid input</h2><ul>")
-        for r in invalid:
+        for r in cls["invalid"]:
             parts.append(f"<li><code>{escape(r['epitope'])}</code> — {escape(r['error'])}</li>")
         parts.append("</ul>")
     parts.append("</body></html>")
@@ -1163,6 +1332,15 @@ def main() -> int:
                     help="Number of concurrent worker threads for the outer "
                          "peptide loop (default: 8). Lower to 1–4 if IEDB or "
                          "UniProt start returning HTTP 429.")
+    ap.add_argument("--parent", action="append", default=[], metavar="ACC",
+                    help="Expected parent UniProt accession(s) to map peptides "
+                         "against even when IEDB has no epitope record. "
+                         "Repeatable or comma-separated, e.g. "
+                         "--parent P01266,P07202. Any peptide found as an exact "
+                         "substring of a provided parent is mapped with "
+                         "mapping_source=provided_substring. Useful for fully "
+                         "novel / predicted panels where no peptide hits IEDB, "
+                         "so there is no batch parent to borrow.")
     args = ap.parse_args()
 
     peptides = parse_inputs(args.peptides, args.input)
@@ -1184,6 +1362,23 @@ def main() -> int:
             # submit-then-collect preserves input order
             futures = [pool.submit(_safe, seq) for seq in peptides]
             results = [f.result() for f in futures]
+
+    # Second pass: map peptides IEDB didn't curate onto parents we resolved in
+    # this run (or that the user named with --parent), by exact substring. This
+    # is what lets a genuine protein fragment that simply isn't in IEDB still
+    # get a parent + verified coordinates instead of a bare "no hit".
+    provided: list[str] = []
+    for item in args.parent or []:
+        provided.extend(x for x in item.split(",") if x.strip())
+    provided_accs = {a.strip().split(".")[0] for a in provided if a.strip()}
+    parent_pool = build_parent_pool(results, provided,
+                                    use_alphafold=not args.no_alphafold)
+    enrich_with_fallback_parents(results, parent_pool, provided_accs)
+
+    n_iedb = sum(1 for r in results if r.get("iedb_status") == "matched")
+    n_mapped = sum(1 for r in results if _is_mapped(r))
+    print(f"  IEDB-matched: {n_iedb}/{len(results)}; "
+          f"mapped to a parent: {n_mapped}/{len(results)}", file=sys.stderr)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

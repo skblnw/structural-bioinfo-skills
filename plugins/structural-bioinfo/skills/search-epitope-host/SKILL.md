@@ -5,7 +5,16 @@ description: Map an epitope peptide (or a list of them) to its parent host prote
 
 # Search epitope host
 
-Given one or more epitope peptide sequences, return — for each — the parent protein(s) curated in IEDB, the epitope's location on the canonical UniProt sequence (with a verification check), and the best available 3D structure: experimental PDB first, AlphaFold prediction as fallback.
+Given one or more epitope peptide sequences, return — for each — the parent protein(s) it maps to, the epitope's location on the canonical UniProt sequence (with a verification check), and the best available 3D structure: experimental PDB first, AlphaFold prediction as fallback.
+
+### Two independent questions: "in IEDB?" vs "maps to a parent?"
+
+These are **not** the same thing, and the output reports them in two separate columns so they never get conflated:
+
+- **`iedb_status`** (`matched` / `no_iedb_match`) — is this exact peptide curated as an epitope in IEDB? IEDB's `epitope_search` is exact-match, so a genuine protein fragment that simply was never deposited returns `no_iedb_match`.
+- **`mapping_source`** (`iedb_curated` / `batch_substring` / `provided_substring` / blank) — did we place it on a parent protein, and how? A peptide can be `no_iedb_match` yet still be a verified fragment of its parent.
+
+The skill closes the gap with a **substring fallback**: any parent resolved from IEDB anywhere in the run (or named with `--parent`) becomes a candidate, and every otherwise-unmapped peptide is checked as an exact substring against those canonical sequences. So a panel of Tg/TPO peptides where only half are in IEDB still maps all of them to thyroglobulin / thyroid peroxidase with verified coordinates — only peptides that match *no* candidate parent stay unmapped. Report "mapped to a parent" (the biological answer) and "matched in IEDB" (the curation-coverage answer) as distinct numbers.
 
 ## When to use this skill
 
@@ -51,6 +60,7 @@ Duplicate peptides are silently collapsed before any network call, so a 35 k-row
 | `--no-alphafold` | off | Do not query AlphaFold even when the parent has no PDB entry. |
 | `--no-json` | off | Skip the raw `report.json` dump. |
 | `--workers`, `-j N` | `8` | Number of concurrent worker threads on the outer peptide loop. Stdlib `ThreadPoolExecutor`. Drop to `1`–`4` if IEDB/UniProt start returning HTTP 429. For 100-peptide inputs the speedup over `-j 1` is ~7×; scales linearly to a few thousand peptides. |
+| `--parent ACC` | none | Expected parent UniProt accession(s) to map peptides against even when IEDB has no epitope record. Repeatable or comma-separated (`--parent P01266,P07202`). Peptides found as an exact substring are mapped with `mapping_source=provided_substring`. **Essential for fully novel / predicted panels** where no peptide hits IEDB — without an IEDB hit somewhere in the run there is no batch parent to borrow, so `--parent` is the only way to place them. |
 
 ### Pipeline (per epitope)
 
@@ -60,6 +70,7 @@ Duplicate peptides are silently collapsed before any network call, so a 35 k-row
 3. **UniProt JSON fetch** for each unique parent accession. Pulls the canonical sequence, name, organism, and all PDB cross-references with method/resolution/chains.
 4. **Position verification.** For each (start, end) IEDB reports, the script slices the canonical sequence and confirms it equals the input peptide (`✓` / `✗`). Independent of the claim, it also scans the full sequence with `find` and reports every occurrence — this catches the occasional case where the IEDB position is wrong but the peptide still exists at the right spot.
 5. **Structure decision.** If the UniProt entry has any PDB cross-references, those are reported and **AlphaFold is not queried**. Only if PDB cross-refs are empty does the script call `https://alphafold.ebi.ac.uk/api/prediction/{acc}` and surface `pdbUrl`/`cifUrl`/version.
+6. **Substring fallback (second pass, all peptides).** After every peptide has been through IEDB, the script pools all parents it resolved this run plus any `--parent` accessions, and for each peptide still unmapped, searches it as an exact substring against each pooled parent's canonical sequence. A hit attaches that parent with verified coordinates and `mapping_source` = `batch_substring` (borrowed from the batch) or `provided_substring` (from `--parent`). This is what lets non-curated fragments map to their protein instead of dead-ending at `no_iedb_match`. Exact-substring coincidences across unrelated proteins are astronomically unlikely for ≥8-mers, and every fallback mapping is labeled so it stays distinguishable from IEDB-curated ones.
 
 ## Output schema
 
@@ -72,7 +83,7 @@ Everything is written inside the directory passed to `--out-dir` (default `./epi
 ├── report.json           # Raw result list (skipped with --no-json)
 ├── epitopes.csv          # Master mapping: one row per (epitope, parent UniProt)
 ├── structures/
-│   └── <UNIPROT_ACC>.csv     # One file per matched parent — PDB or AlphaFold rows
+│   └── <UNIPROT_ACC>.csv     # One file per resolved parent — PDB or AlphaFold rows
 └── parents/
     ├── <UNIPROT_ACC>.fasta   # Full-length canonical UniProt sequence
     └── <UNIPROT_ACC>.html    # Per-parent epitope map — sequence with epitopes highlighted
@@ -83,15 +94,19 @@ Everything is written inside the directory passed to `--out-dir` (default `./epi
 **`report.html`** has the same Summary table only — the Per-epitope details section is omitted because at >100 input peptides the HTML balloons past tens of MB and browsers struggle to render. For per-epitope detail, point users to `report.md` or to the per-parent files under `parents/`. The summary table itself carries all the high-signal columns including `HLA outcomes`.
 
 **`epitopes.csv` columns:**
-`epitope, length, status, uniprot_acc, protein_name, organism, assay_outcomes, mhc_classes, mhc_alleles, hla_outcomes, uniprot_length, claimed_positions, position_verified, occurrences, n_pdb, has_alphafold`
+`epitope, length, iedb_status, mapping_source, uniprot_acc, protein_name, organism, assay_outcomes, mhc_classes, mhc_alleles, hla_outcomes, uniprot_length, claimed_positions, position_verified, occurrences, n_pdb, has_alphafold`
 
-Possible `status` values: `matched`, `no_iedb_match`, `uniprot_fetch_failed`, `invalid: <reason>`, `error: <message>`. Unmatched and invalid epitopes still get one row each so every input is accounted for.
+**The two status columns (read these together).**
+- `iedb_status`: `matched` (curated epitope in IEDB), `no_iedb_match` (not in IEDB), `invalid: <reason>`, or `error: <message>`.
+- `mapping_source`: how the row's parent was assigned — `iedb_curated` (from IEDB's source-antigen curation), `batch_substring` (substring of a parent another peptide resolved this run), `provided_substring` (substring of a `--parent` accession), or blank (peptide unmapped — no parent contains it).
+
+One row per (epitope, parent), so a peptide mapped to two parents gets two rows with possibly different `mapping_source`. Unmapped, invalid, and errored epitopes still get one row each (blank parent fields) so every input is accounted for. `position_verified` is `yes` whenever the peptide is confirmed present in the parent — for `iedb_curated` rows it checks IEDB's claimed coordinates (`✓`/`✗`); for substring rows the located occurrence itself is the verification.
 
 **Assay outcomes.** `assay_outcomes` is the `;`-joined deduplicated list of IEDB `qualitative_measures` for that epitope, copied verbatim. Possible raw values: `Positive`, `Positive-High`, `Positive-Intermediate`, `Positive-Low`, `Negative`. A single peptide can carry both `Positive*` **and** `Negative` when different assays disagree — common, not a bug. `mhc_classes` is `I`, `II`, or `I; II`; `mhc_alleles` is capped at 5 (with a `…(+N)` suffix when truncated) to keep cells readable.
 
 **Per-allele outcomes (`hla_outcomes`).** The same outcomes broken down by HLA allele, format `HLA-A*02:01[Negative,Positive]; HLA-B*07:02[Negative]`. Built from `/mhc_search` + `/tcell_search` rows. Use this when investigating *why* `assay_outcomes` is mixed — sometimes a peptide is a strong binder to one allele and a non-binder to another, which is not real label noise but real biology. Capped at 8 alleles per row.
 
-For datasets labeled "negative", the leakage query is **`status == matched` AND `assay_outcomes` contains any `Positive*`** — those are peptides the user labeled negative that IEDB has positive evidence for. `hla_outcomes` tells you whether the positive was on the *same* allele as the user's target restriction (real leakage) or a different allele (could be excusable depending on the experiment).
+For datasets labeled "negative", the leakage query is **`iedb_status == matched` AND `assay_outcomes` contains any `Positive*`** — those are peptides the user labeled negative that IEDB has positive evidence for. `hla_outcomes` tells you whether the positive was on the *same* allele as the user's target restriction (real leakage) or a different allele (could be excusable depending on the experiment).
 
 **`structures/<UNIPROT_ACC>.csv` columns:**
 `uniprot_acc, source, entry_id, method, resolution, chains, range, version, url`
@@ -120,23 +135,32 @@ python scripts/search_epitope_host.py --input my_peptides.txt --html-only -o bat
 
 # Force AlphaFold-free output (only experimental PDB)
 python scripts/search_epitope_host.py SIINFEKL --no-alphafold -o pdb_only/
+
+# Panel where only some peptides are curated in IEDB — the rest are mapped by
+# substring to parents the matched ones resolved. No flags needed.
+python scripts/search_epitope_host.py --input tg_tpo_panel.txt -o panel/
+
+# Fully novel / predicted panel — nothing hits IEDB, so name the expected
+# parent(s) explicitly and every peptide that is a real fragment gets placed.
+python scripts/search_epitope_host.py --input predicted.txt --parent P01266,P07202 -o novel/
 ```
 
 ## Workflow guidance for the assistant
 
 1. Always run the script — don't hand-craft IEDB / UniProt / AlphaFold URLs yourself.
 2. Pass `-o <dir>/` so the output bundle lives in its own folder (the directory will be created if missing). Point the user there when reporting back — the top-of-report summary table and `epitopes.csv` are the main entrypoints; per-parent CSVs in `structures/` are for downstream scripting.
-3. After the run, **scan `epitopes.csv` (or the report's Summary table) for non-`matched` statuses**: `no_iedb_match`, `uniprot_fetch_failed`, `invalid: …`, `error: …`. Mention any to the user. `uniprot_fetch_failed` typically means a stale IRI; the other parents for the same epitope are still resolved correctly.
+3. **Report two distinct numbers, never one.** "Matched in IEDB" (count of `iedb_status == matched`) and "Mapped to a parent" (count of rows with a non-blank `mapping_source` / filled `uniprot_acc`) answer different questions and will usually differ — the report header prints both. Do not say "N unmatched" as if those peptides failed: a `no_iedb_match` peptide with `mapping_source = batch_substring` is a confirmed protein fragment, just not curated in IEDB. The only genuine misses are rows that are **both** `no_iedb_match` **and** blank `mapping_source` (the "Unmapped" section) — surface those, and suggest `--parent` if the expected protein is known. Also flag `invalid: …` / `error: …` rows.
 4. **Scan for `✗` verification marks** in the position column: a stale IEDB position. The "found at …" suffix gives the corrected location.
 5. If a single epitope returns **multiple parents from different organisms** (common for conserved viral motifs), summarize the list and ask the user which they care about before any downstream work.
 6. If a parent has **no PDB and no AlphaFold** (small viral peptides, fragments, partial sequences in TrEMBL), flag it — the user may want to switch to the full-length reference proteome accession instead.
 7. Don't dump the full Markdown into chat; point the user to the directory and quote one or two highlights.
 8. **For large inputs (>500 peptides)** raise `--workers` (default 8 is safe; 12–16 also fine on a quiet network). Most of the wall-clock is the per-peptide IEDB round-trip, which parallelizes well — concurrency is far more effective than truncating the input. If you see HTTP 429 / "Connection reset" in stderr, drop to `--workers 4`. UniProt/AlphaFold results are cached per process, so a follow-up rerun is cheaper.
-9. **Auditing a "negative" or "non-binder" dataset for IEDB leakage:** filter `epitopes.csv` to `status == matched` then look at `assay_outcomes`. Pure-`Negative` rows mean IEDB and the user agree the peptide is a non-binder. Rows containing any `Positive*` value mean IEDB has positive immunogenicity evidence — surface those to the user as labeling disagreements (likely candidates for removal from a negative training set).
+9. **Auditing a "negative" or "non-binder" dataset for IEDB leakage:** filter `epitopes.csv` to `iedb_status == matched` then look at `assay_outcomes`. Pure-`Negative` rows mean IEDB and the user agree the peptide is a non-binder. Rows containing any `Positive*` value mean IEDB has positive immunogenicity evidence — surface those to the user as labeling disagreements (likely candidates for removal from a negative training set).
 
 ## Gotchas
 
-- IEDB's `epitope_search` is exact-match on `linear_sequence`. Off-by-one peptides won't be found — confirm the user's exact sequence before assuming "not in IEDB".
+- IEDB's `epitope_search` is exact-match on `linear_sequence`. Off-by-one peptides won't be found — confirm the user's exact sequence before assuming "not in IEDB". But note `no_iedb_match` ≠ "not from a known protein": the substring fallback (step 6) still maps such peptides to a parent when one is in scope, so judge novelty by `mapping_source`, not `iedb_status`.
+- The substring fallback is **on by default** and borrows parents across the batch. It needs at least one IEDB-resolved parent (or a `--parent` accession) to have something to match against — a batch where *nothing* hits IEDB and no `--parent` is given falls back to nothing, and everything reads `Unmapped`. Pass `--parent` in that situation.
 - IRIs can carry a version suffix (`P01012.2`). The script strips it; the UniProt accession resolved is always the bare form.
 - Non-UniProt **curated** source antigens (`GENPEPT:`, `NCBI:`, etc.) still resolve to a UniProt parent via IEDB's `parent_source_antigen_iris` field. Only epitope rows with no UniProt parent at all are skipped. As a result the hit-rate of this script is materially higher than older versions that filtered strictly on `curated_source_antigens[*].iri`.
 - TrEMBL entries (Q*-prefixed) often lack PDB and AlphaFold predictions; that's not a bug. SwissProt entries are usually richer.
