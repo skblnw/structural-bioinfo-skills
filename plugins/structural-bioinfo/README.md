@@ -76,6 +76,14 @@ Consolidate per-PDB pharmacophore JSONs from N≥3 co-crystals of the same recep
 
 **Output:** a structured markdown report (executive summary, residue-resolved interaction tables, feature retention statistics, ASCII interaction map, data-quality caveats, file manifest) plus `consensus_pharmacophore.json` when one isn't already provided.
 
+### `pharmacophore-dashboard`
+
+Turn the same per-PDB pharmacophore JSONs into a single self-contained, **interactive HTML** report — the visual counterpart to `pharmacophore-report-generator`'s markdown. Embeds all data and renders a 3D pharmacophore explorer (3Dmol.js: receptor pocket + ligand + colored feature spheres + H-bond/salt-bridge lines), feature-retention charts, sortable per-structure and residue-engagement tables, and the consensus virtual-screening query. Auto-discovers structures, locates the cleaned PDBs, computes statistics, and overlays a consensus query when one is present.
+
+**Triggers:** "Make an interactive dashboard/report for the pharmacophore analysis", "Visualize the pharmacophore features in 3D", "Turn these `*_filtered.pharmacophore.json` files into an interactive HTML report", "Shareable pharmacophore report with a 3D viewer"
+
+**Output:** a single self-contained `*.html` file (~130–280 KB; charts, tables and data are offline, 3Dmol.js loads from a CDN at view time), optionally the intermediate `*_data.json` bundle.
+
 ## Workflow
 
 The holostructure skills form a pipeline ending in a screening-ready pharmacophore:
@@ -83,7 +91,7 @@ The holostructure skills form a pipeline ending in a screening-ready pharmacopho
 1. **Search** — `pdb-holostructure-search` → `holostructures.csv`
 2. **Extract** — `pdb-extractor --csv holostructures.csv --uniprot <ACCESSION>` → clean PDBs
 3. **Pharmacophore per structure** — `pharmacophore-analyzer` → one `*.pharmacophore.json` + `*.pharmacophore.pml` per PDB
-4. **Consensus report** — `pharmacophore-report-generator` → multi-structure markdown report + `consensus_pharmacophore.json`
+4. **Consensus report** — `pharmacophore-report-generator` → multi-structure markdown report + `consensus_pharmacophore.json`, or `pharmacophore-dashboard` → a self-contained interactive HTML dashboard (same per-PDB inputs)
 
 ```bash
 # 1. Find all holostructures for your target
@@ -99,6 +107,9 @@ done
 
 # 4. Consensus report across all per-PDB pharmacophore JSONs
 python $HOME/.claude/plugins/structural-bioinfo/skills/pharmacophore-report-generator/scripts/extract_report_data.py pharmacophores/ -o pharmacophore_report/
+
+# 4b. (alternative deliverable) interactive HTML dashboard from the same per-PDB JSONs
+python $HOME/.claude/plugins/structural-bioinfo/skills/pharmacophore-dashboard/scripts/generate_report.py pharmacophores/ --raw-dir raw/ --out pharmacophore_report.html
 ```
 
 `search-epitope-host` is a standalone entry point for the epitope side — given peptides, it produces the parent-protein/position/structure report directly, and `epitope-secondary-structure` chains onto its output to add per-epitope DSSP secondary structure.
@@ -134,7 +145,8 @@ opkg install ~/.claude/plugins/structural-bioinfo --platforms opencode
 
 - Python 3.6+ (stdlib only — no pip install needed)
 - Internet access (RCSB PDB APIs, UniProt REST)
-- `mkdssp` for `epitope-secondary-structure` (`conda install -c conda-forge dssp`) and `mdtraj` for `af-secondary-structure` (`conda install -c conda-forge mdtraj`); all other skills are dependency-free
+- `numpy` for `pharmacophore-report-generator` and `pharmacophore-dashboard`; the latter's HTML also loads `3Dmol.js` from a CDN at view time (only the 3D viewers need the network — charts, tables and data are fully offline)
+- `mkdssp` for `epitope-secondary-structure` (`conda install -c conda-forge dssp`) and `mdtraj` for `af-secondary-structure` (`conda install -c conda-forge mdtraj`); the remaining skills are dependency-free (stdlib only)
 
 ## License
 

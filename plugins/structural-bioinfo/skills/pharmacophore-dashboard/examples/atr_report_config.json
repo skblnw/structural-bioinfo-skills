@@ -1,0 +1,170 @@
+{
+  "target": {
+    "name": "Serine/threonine-protein kinase ATR",
+    "gene": "ATR",
+    "uniprot": "Q13535",
+    "organism": "Homo sapiens",
+    "n_structures": 6
+  },
+  "entry_overrides": [
+    {
+      "key": "9L40_filtered_chainA_res2701",
+      "label": "9L40 (copy 1)",
+      "chemotype_label": "A1E",
+      "role": "Synthetic inhibitor",
+      "category": "binding",
+      "note": "A1E Mode 1 (ASP2494/GLY2385)"
+    },
+    {
+      "key": "9L40_filtered_chainA_res2702",
+      "label": "9L40 (copy 2)",
+      "chemotype_label": "A1E",
+      "role": "Synthetic inhibitor",
+      "category": "negative",
+      "note": "Non-productive pose \u2014 negative control"
+    },
+    {
+      "key": "9L45_filtered",
+      "label": "9L45",
+      "chemotype_label": "A1E",
+      "role": "Synthetic inhibitor",
+      "category": "binding",
+      "note": "A1E Mode 1"
+    },
+    {
+      "key": "9L4B_filtered",
+      "label": "9L4B",
+      "chemotype_label": "A1E",
+      "role": "Synthetic inhibitor",
+      "category": "binding",
+      "note": "A1E Mode 2 (TYR2365)"
+    },
+    {
+      "key": "9L4D_filtered",
+      "label": "9L4D",
+      "chemotype_label": "A1E",
+      "role": "Synthetic inhibitor",
+      "category": "binding",
+      "note": "A1E Mode 2 (TYR2365)"
+    },
+    {
+      "key": "9L46_filtered",
+      "label": "9L46",
+      "chemotype_label": "AGS",
+      "role": "ATP analog",
+      "category": "binding",
+      "note": "ATP-site"
+    },
+    {
+      "key": "9L4F_filtered",
+      "label": "9L4F",
+      "chemotype_label": "AGS",
+      "role": "ATP analog",
+      "category": "binding",
+      "note": "ATP-site (most complete AGS)"
+    }
+  ],
+  "accent": "#4f46e5",
+  "accent_dark": "#3730a3",
+  "accent_soft": "#eef2ff",
+  "kicker": "Structure-based pharmacophore \u00b7 early hit discovery",
+  "meta": "Generated 2026-04-26 \u00b7 RDKit 2026.03.1 \u00b7 BaseFeatures.fdef \u00b7 interaction-filtered \u00b7 6 PDB complexes (4\u00d7 A1E, 2\u00d7 AGS)",
+  "summary_html": "\n    <p>Six ATR protein&ndash;ligand complexes were analyzed to derive structure-based pharmacophore queries for virtual screening. Two ligand chemotypes anchor the analysis: <b>A1E</b>, a synthetic inhibitor (9L40, 9L45, 9L4B, 9L4D), and <b>AGS</b>, an ATP analog / adenosine-thiophosphate (9L46, 9L4F).</p>\n    <p>A1E adopts <b>two distinct binding sub-modes</b> &mdash; an ASP2494 / GLY2385 motif and a TYR2365 motif &mdash; providing two complementary pharmacophore queries. The receptor engages a conserved set of hydrogen-bond donor and acceptor features; positively-ionizable groups consistently pair with ASP2494.</p>\n    <div class=\"keyfind\"><b>Key finding for screening:</b> Build queries from <b>Donor and Acceptor</b> features (with PosIonizable as an optional ASP2494 constraint). Aromatic and hydrophobic ligand features never contact the protein across any structure &mdash; exclude them. A second, non-productive A1E copy in 9L40 (resnum 2702) retains zero features and serves as a built-in negative control.</div>\n  ",
+  "modes": [
+    {
+      "name": "Primary query \u00b7 A1E Mode 1 (ASP2494 / GLY2385)",
+      "confidence": "Moderate confidence",
+      "conf_cls": "mod",
+      "support": "9L40 copy 1 + 9L45",
+      "desc": "The dominant A1E binding mode. A Donor/PosIonizable pair engages ASP2494 (OD1) while two acceptors hydrogen-bond the GLY2385 backbone amide.",
+      "features": [
+        {
+          "fam": "Donor",
+          "tol": "1.0",
+          "partner": "ASP2494 OD1"
+        },
+        {
+          "fam": "Acceptor",
+          "tol": "1.0",
+          "partner": "GLY2385 N"
+        },
+        {
+          "fam": "Acceptor",
+          "tol": "1.0",
+          "partner": "GLY2385 N"
+        },
+        {
+          "fam": "PosIonizable",
+          "tol": "1.5",
+          "partner": "ASP2494 OD1"
+        }
+      ],
+      "strategy": "Screen first. Require 3 of 4 features matched, with the Donor/PosIonizable pair at ASP2494 mandatory (same ligand position)."
+    },
+    {
+      "name": "Secondary query \u00b7 A1E Mode 2 (TYR2365)",
+      "confidence": "Moderate confidence",
+      "conf_cls": "mod",
+      "support": "9L4B + 9L4D",
+      "desc": "An alternate A1E pose anchored on the TYR2365 hydroxyl. Two adjacent donors both donate to the same tyrosine OH (effectively one point with wider tolerance).",
+      "features": [
+        {
+          "fam": "Donor",
+          "tol": "1.0",
+          "partner": "TYR2365 OH"
+        },
+        {
+          "fam": "Donor",
+          "tol": "1.0",
+          "partner": "TYR2365 OH"
+        },
+        {
+          "fam": "Acceptor",
+          "tol": "1.0",
+          "partner": "SER2305 OG"
+        },
+        {
+          "fam": "Acceptor",
+          "tol": "1.0",
+          "partner": "VAL2380 N"
+        }
+      ],
+      "strategy": "Rescreen top Mode-1 hits. Require Donor &rarr; TYR2365; merge the two adjacent donors into one 1.5 &Aring; sphere. Overlap with Mode 1 flags dual-mode ligands."
+    },
+    {
+      "name": "ATP-site filter \u00b7 AGS",
+      "confidence": "Low confidence",
+      "conf_cls": "low",
+      "support": "no consensus across 9L46 / 9L4F",
+      "desc": "The ATP pocket engages different phosphate oxygens in 9L46 vs 9L4F, so no reproducible cross-structure query emerges. AGS bond orders are high-confidence (CCD template matched).",
+      "features": null,
+      "strategy": "Use 9L4F (4 features) as reference and apply a loose partial match (3 of 7) as a selectivity filter to exclude ATP-competitive compounds &mdash; not as a primary query."
+    }
+  ],
+  "interaction_map": "ASP2494  \u2190 [Donor] [PosIonizable]      A1E Mode 1 (9L40, 9L45)\nGLY2385  \u2190 [Acceptor] [Acceptor]        A1E Mode 1 (9L40, 9L45)\nGLU2378  \u2190 [Donor]                       A1E Mode 1 (9L40) + AGS (9L4F)\nTYR2365  \u2190 [Donor] [Donor]              A1E Mode 2 (9L4B, 9L4D)\nSER2305  \u2190 [Acceptor]                    A1E Mode 2 (9L4D)\nVAL2380  \u2190 [Acceptor]                    A1E Mode 2 (9L4D)\nPRO2328  \u2190 [Donor] [Acceptor]           AGS (9L4F)\nASP2330  \u2190 [Acceptor]                    AGS (9L4F)\nALA2304  \u2190 [Donor]                       AGS (9L46)\nGLU2479  \u2190 [Donor]                       AGS (9L46)\nILE2377  \u2190 [Donor]                       AGS (9L46)",
+  "interaction_map_note": "<b>GLU2378</b> appears in both A1E Mode 1 and the AGS ATP-site, suggesting it is a versatile hydrogen-bond partner accessible from different binding poses.",
+  "limitations": [
+    {
+      "issue": "A1E bond orders unreliable",
+      "impact": "AssignBondOrdersFromTemplate failed for all A1E structures (smiles_source: template_failed_best_effort); some Donor/Acceptor assignments may be misclassified.",
+      "mitigation": "Supply a validated A1E SMILES on re-run; cross-check feature assignments against PyMOL visual inspection of the .pml files."
+    },
+    {
+      "issue": "9L40 copy 2 (resnum 2702) is non-binding",
+      "impact": "0 retained features despite 17 detected &mdash; a crystallographic / non-productive pose.",
+      "mitigation": "Use as a negative reference only; exclude from query construction."
+    },
+    {
+      "issue": "AGS has no cross-structure consensus",
+      "impact": "9L46 and 9L4F engage different phosphate oxygens, so the ATP-site query is not reproducible.",
+      "mitigation": "Apply AGS as a selectivity filter rather than a primary query."
+    },
+    {
+      "issue": "No aromatic / hydrophobic features survive",
+      "impact": "&pi;-stacking or hydrophobic contacts may be under-detected by the simplified protein-side feature lookup.",
+      "mitigation": "Add manually if specific &pi;-stacking residues are known to engage the scaffold."
+    }
+  ],
+  "manifest": "atr/pharmacophore/\n\u251c\u2500 REPORT.md                                    full written report\n\u251c\u2500 9L40_filtered_chainA_res2701...json          5 feats  \u2014 Mode 1 consensus\n\u251c\u2500 9L40_filtered_chainA_res2702...json          0 feats  \u2014 negative control\n\u251c\u2500 9L45_filtered.pharmacophore.json             4 feats  \u2014 Mode 1\n\u251c\u2500 9L4B_filtered.pharmacophore.json             2 feats  \u2014 Mode 2\n\u251c\u2500 9L4D_filtered.pharmacophore.json             4 feats  \u2014 Mode 2\n\u251c\u2500 9L46_filtered.pharmacophore.json             3 feats  \u2014 AGS (Donors only)\n\u251c\u2500 9L4F_filtered.pharmacophore.json             4 feats  \u2014 AGS (most complete)\n\u2514\u2500 *_all.pharmacophore.json / *.pml             unfiltered sets + PyMOL scripts\n\nraw/<PDB>/<PDB>_clean.pdb                        cleaned receptor + ligand (source for 3D)",
+  "footer": "Interactive report generated from the ATR pharmacophore analysis outputs (RDKit BaseFeatures.fdef, interaction-filtered). 3D structures rendered with 3Dmol.js. All feature coordinates, partner residues and distances are read directly from the per-structure filtered JSON files. Source: <code>atr/pharmacophore/</code>."
+}

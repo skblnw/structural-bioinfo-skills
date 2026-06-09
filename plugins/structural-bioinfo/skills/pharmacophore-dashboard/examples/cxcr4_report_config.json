@@ -1,0 +1,138 @@
+{
+  "target": {
+    "name": "C-X-C chemokine receptor type 4",
+    "gene": "CXCR4",
+    "uniprot": "P61073",
+    "organism": "Homo sapiens",
+    "n_structures": 12
+  },
+  "entry_overrides": [
+    {
+      "pdb_id": "8U4P",
+      "chemotype_label": "VH6 (Plerixafor/AMD3100)",
+      "role": "Orthosteric inhibitor",
+      "category": "orthosteric"
+    },
+    {
+      "pdb_id": "8ZPN",
+      "chemotype_label": "VH6 (Plerixafor/AMD3100)",
+      "role": "Orthosteric inhibitor",
+      "category": "orthosteric"
+    },
+    {
+      "pdb_id": "8ZPL",
+      "chemotype_label": "A1D (Mavorixafor)",
+      "role": "Orthosteric inhibitor",
+      "category": "orthosteric"
+    },
+    {
+      "pdb_id": "8U4N",
+      "chemotype_label": "CLR (Cholesterol)",
+      "role": "Allosteric/membrane lipid",
+      "category": "excluded"
+    },
+    {
+      "pdb_id": "8U4O",
+      "chemotype_label": "CLR (Cholesterol)",
+      "role": "Allosteric/membrane lipid",
+      "category": "excluded"
+    },
+    {
+      "pdb_id": "8U4Q",
+      "chemotype_label": "CLR (Cholesterol)",
+      "role": "Allosteric/membrane lipid",
+      "category": "excluded"
+    },
+    {
+      "pdb_id": "8U4R",
+      "chemotype_label": "CLR (Cholesterol)",
+      "role": "Allosteric/membrane lipid",
+      "category": "excluded"
+    },
+    {
+      "pdb_id": "8U4S",
+      "chemotype_label": "CLR (Cholesterol)",
+      "role": "Allosteric/membrane lipid",
+      "category": "excluded"
+    },
+    {
+      "pdb_id": "8U4T",
+      "chemotype_label": "CLR (Cholesterol)",
+      "role": "Allosteric/membrane lipid",
+      "category": "excluded"
+    },
+    {
+      "pdb_id": "8YU7",
+      "chemotype_label": "CLR (Cholesterol)",
+      "role": "Allosteric/membrane lipid",
+      "category": "excluded"
+    },
+    {
+      "pdb_id": "8ZPM",
+      "chemotype_label": "CLR (Cholesterol)",
+      "role": "Allosteric/membrane lipid",
+      "category": "excluded"
+    },
+    {
+      "pdb_id": "22XC",
+      "chemotype_label": "D21",
+      "role": "Crystallographic lipid",
+      "category": "excluded"
+    }
+  ],
+  "accent": "#0d9488",
+  "accent_dark": "#0f766e",
+  "accent_soft": "#ecfdf5",
+  "kicker": "Orthosteric pharmacophore \u00b7 early hit discovery",
+  "meta": "Generated 2026-04-26 \u00b7 RDKit 2026.03.1 \u00b7 BaseFeatures.fdef \u00b7 interaction-filtered \u00b7 Kabsch consensus \u00b7 12 cryo-EM holostructures",
+  "summary_html": "\n    <p>Twelve CXCR4 cryo-EM holostructures (2.7&ndash;3.4 &Aring;) were analyzed to derive a validated structure-based pharmacophore for prospective virtual screening. The orthosteric pocket presents a <b>Donor + PosIonizable&ndash;dominated</b> pharmacophore anchored on a conserved acidic pair: <b>ASP270</b> (TM6) and <b>GLU296</b> (TM7), which together absorb 33 of the 39 retained features across the orthosteric set.</p>\n    <p>The pharmacophore is preserved across a <b>7.2 &Aring; C&alpha; conformational shift</b> (8U4P vs 8ZPN, both VH6) and converges across two distinct chemotypes &mdash; VH6 (Plerixafor / AMD3100) and A1D (Mavorixafor) &mdash; within ~3 &Aring; mean feature distance. Cholesterol (CLR, 16 copies) and a co-bound lipid (D21) are rejected by the interaction filter (&lt;8% retention) and serve as built-in negative controls.</p>\n    <div class=\"keyfind\"><b>Deliverable:</b> a 22-feature consensus query (11 mandatory, 11 optional), Donor + PosIonizable only, directly importable into Pharmer / align-it / RDKit shape screening (<code>consensus_pharmacophore.json</code>).</div>\n  ",
+  "strategies": [
+    {
+      "name": "Strict",
+      "criteria": "Match all 11 mandatory features",
+      "behavior": "High precision, low recall. Demands a ligand that recapitulates the orthosteric pharmacophore exactly."
+    },
+    {
+      "name": "Relaxed",
+      "criteria": "Match \u22655 mandatory + \u22653 optional",
+      "behavior": "Balanced precision / recall. Accommodates chemotype diversity while preserving the core Donor + PosIonizable fingerprint."
+    },
+    {
+      "name": "Scoring",
+      "criteria": "score = mandatory + 0.5 \u00d7 optional;  threshold \u2265 8",
+      "behavior": "Tunable via threshold. Ranks hits continuously rather than pass/fail."
+    }
+  ],
+  "interaction_map": "TM6   ASP270  (= ASP262 in 8U4P)  \u2190  [Donor \u00d78]  [PosIonizable \u00d712]   ALL 3 entries \u2014 PRIMARY anchor\nTM7   GLU296  (= GLU288 in 8U4P)  \u2190  [Donor \u00d75]  [PosIonizable \u00d78]    ALL 3 entries\nECL2  ASP187                      \u2190  [Donor \u00d71]  [PosIonizable \u00d72]    A1D (8ZPL) + VH6 (8ZPN)\nTM2   ASP97                       \u2190  [Donor]     [PosIonizable]        A1D (8ZPL) only\nECL2  GLN200                      \u2190  [Acceptor]                        A1D (8ZPL) \u2014 sole Acceptor partner",
+  "interaction_map_note": "Every retained Donor / PosIonizable feature is anchored on the TM6+TM7 acidic pair. ASP187 (ECL2) is engaged by A1D and by VH6 in 8ZPN but <b>not</b> by VH6 in the 8U4P activation state &mdash; consistent with the 7.2 &Aring; C&alpha; shift swinging ECL2 in/out of range. Prioritize hits satisfying the TM6+TM7 pair; ECL2 engagement is an optional bonus.",
+  "caveat": "<b>Numbering offset.</b> 8U4P is numbered with an 8-residue offset relative to 8ZPL and 8ZPN: <b>ASP262 &equiv; ASP270</b> and <b>GLU288 &equiv; GLU296</b> are the same conserved TM6/TM7 acidic anchors (Ballesteros&ndash;Weinstein Asp6.58 and Glu7.39). This is a construct artifact of the cryo-EM N-terminal truncation in 8U4P. Apply UniProt P61073 numbering for any downstream cross-reference. In the residue table below, ASP270/ASP262 and GLU296/GLU288 therefore refer to the same two residues.",
+  "limitations": [
+    {
+      "issue": "8ZPL (A1D) smiles_used: null",
+      "impact": "Template fetch fell back to best-effort; A1D bond orders &mdash; including the unique Acceptor at GLN200 &mdash; are lower-confidence than the VH6 features.",
+      "mitigation": "Cross-check 8ZPL features in PyMOL; supply a validated A1D SMILES on re-run."
+    },
+    {
+      "issue": "8U4P uses ASP262/GLU288 numbering",
+      "impact": "The same residue looks non-conserved if numbers are read literally across PDBs.",
+      "mitigation": "Map all residue numbers to UniProt P61073 (Asp6.58, Glu7.39)."
+    },
+    {
+      "issue": "Coordinate-coincident optional features",
+      "impact": "Some optional Donor + PosIonizable features (IDs 5/17, 7/18, 9/20) are the same A1D amine atom in dual roles, inflating the optional count.",
+      "mitigation": "Treat each coordinate-coincident pair as one ligand atom when scoring."
+    },
+    {
+      "issue": "Consensus from 3 entries / 2 chemotypes",
+      "impact": "Limited chemotype coverage; the query may over-fit polyamine scaffolds.",
+      "mitigation": "Incorporate historical IT1t X-ray structures (3ODU, 3OE6/8/9) to add a third chemotype."
+    },
+    {
+      "issue": "No external screening validation",
+      "impact": "Predictive performance on prospective screens is unmeasured.",
+      "mitigation": "Run a retrospective benchmark (source ligands + decoys) and confirm AUC-ROC > random."
+    }
+  ],
+  "manifest": "cxcr4/pharmacophore/\n\u251c\u2500 REPORT.md                                full written report\n\u251c\u2500 consensus_pharmacophore.json             22-feat VS query (11 mandatory, 11 optional)\n\u2502  Orthosteric sources \u2500 used for the consensus\n\u251c\u2500 8U4P/  VH6 chain R   12 filtered         ASP262 + GLU288\n\u251c\u2500 8ZPL/  A1D chain R   14 filtered         ASP270 + GLU296 + ASP97 + ASP187 + GLN200\n\u251c\u2500 8ZPN/  VH6 chain R   13 filtered         ASP270 + GLU296 + ASP187   (reference frame)\n\u2502  Excluded \u2500 interaction filter dropped them (negative controls)\n\u251c\u2500 8U4N/O/Q/R, 8U4S, 8U4T, 8YU7, 8ZPM      CLR (cholesterol)  0\u20132 filtered\n\u2514\u2500 22XC/                                    D21 (lipid)        0\u20131 filtered\n\nraw/<PDB>/<PDB>_clean.pdb                    cleaned CXCR4 monomer + ligands (source for 3D)",
+  "footer": "Interactive report generated from the CXCR4 pharmacophore analysis outputs (RDKit BaseFeatures.fdef, interaction-filtered, Kabsch consensus). 3D structures rendered with 3Dmol.js. Feature coordinates, partner residues and distances are read directly from the per-structure filtered JSON files and <code>consensus_pharmacophore.json</code>. Source: <code>cxcr4/pharmacophore/</code>."
+}
